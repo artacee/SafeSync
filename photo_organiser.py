@@ -469,7 +469,6 @@ def main():
     SOURCE = str(Path(source_folder).resolve())
     DESTINATION = str(Path(dest_folder).resolve())
 
-    # ── Setup destination and logging ─────────────────────────────────────
     dest_root = Path(DESTINATION)
     try:
         dest_root.mkdir(parents=True, exist_ok=True)
@@ -479,8 +478,11 @@ def main():
         print(f"  Make sure the F: drive is connected and writable.\n")
         sys.exit(1)
 
-    log_path = dest_root / 'copy_log.txt'
-    manifest_path = dest_root / 'manifest.csv'
+    control_dir = dest_root / '_Archive_Control'
+    control_dir.mkdir(parents=True, exist_ok=True)
+
+    log_path = control_dir / 'copy_log.txt'
+    manifest_path = control_dir / 'manifest.csv'
 
     logging.basicConfig(
         level=logging.INFO,
@@ -787,8 +789,11 @@ def run_corrupt_scan(scan_path: Path):
         return
 
     print(f"Found {total:,} media files. Starting integrity check...")
-    corrupt_dir = scan_path / '_Corrupt'
-    report_path = scan_path / 'corrupt_scan_report.txt'
+    control_dir = scan_path / '_Archive_Control'
+    control_dir.mkdir(parents=True, exist_ok=True)
+    
+    corrupt_dir = control_dir / '_Corrupt'
+    report_path = control_dir / 'corrupt_scan_report.txt'
     
     corrupt_count = 0
     start_time = wall_time()
@@ -1051,14 +1056,18 @@ def run_archive_doctor():
     if not arch_dir: return
 
     arch_path = Path(arch_dir).resolve()
-    report_path = arch_path / 'archive_health_report.txt'
-    corrupt_dir = arch_path / '_Corrupt'
+    
+    control_dir = arch_path / '_Archive_Control'
+    control_dir.mkdir(parents=True, exist_ok=True)
+    
+    report_path = control_dir / 'archive_health_report.txt'
+    corrupt_dir = control_dir / '_Corrupt'
     
     print(f"\nScanning Archive ({arch_path})...")
     
     all_files = []
     for r, _, files in os.walk(arch_path):
-        if '_Corrupt' in r: continue
+        if '_Archive_Control' in r or '_Corrupt' in r: continue
         for f in files:
             p = Path(r) / f
             if p.suffix.lower() in ALL_MEDIA:
@@ -1179,7 +1188,7 @@ def run_archive_doctor():
     print("\nSweeping up empty folders left behind...")
     cleaned = 0
     for r, dirs, files in os.walk(arch_path, topdown=False):
-        if Path(r) == arch_path: continue
+        if Path(r) == arch_path or '_Archive_Control' in r: continue
         try:
             if not os.listdir(r):
                 Path(r).rmdir()

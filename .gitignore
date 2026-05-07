@@ -11,7 +11,4 @@ env.bak/
 venv.bak/
 
 # Project specific
-copy_log.txt
-manifest.csv
-corrupt_scan_report.txt
-_Corrupt/
+_Archive_Control/
