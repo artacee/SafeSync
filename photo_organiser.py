@@ -402,6 +402,8 @@ def main():
                         help='Video Compressor: Shrink large videos')
     parser.add_argument('--clean-empty', action='store_true',
                         help='Clean empty folders from source')
+    parser.add_argument('--archive-doctor', action='store_true',
+                        help='Health check an existing archive')
     args = parser.parse_args()
     
     dry_run = args.dry_run
@@ -414,6 +416,9 @@ def main():
         return
     if args.clean_empty:
         run_clean_empty_folders()
+        return
+    if args.archive_doctor:
+        run_archive_doctor()
         return
 
     check_corrupt = args.check_corrupt
@@ -1026,6 +1031,134 @@ def run_video_compressor():
         print("\nAll compressions finished.")
     else:
         print("\nCancelled.")
+
+
+def run_archive_doctor():
+    """Perform a health check and retroactive organization on an existing archive."""
+    root = tk.Tk()
+    root.withdraw()
+    print("\n============================================================")
+    print(" ARCHIVE DOCTOR: Select Archive Folder to Inspect")
+    print("============================================================\n")
+    arch_dir = filedialog.askdirectory(title="Select Archive Folder")
+    if not arch_dir: return
+
+    arch_path = Path(arch_dir).resolve()
+    report_path = arch_path / 'archive_health_report.txt'
+    corrupt_dir = arch_path / '_Corrupt'
+    
+    print(f"\nScanning Archive ({arch_path})...")
+    
+    all_files = []
+    for r, _, files in os.walk(arch_path):
+        if '_Corrupt' in r: continue
+        for f in files:
+            p = Path(r) / f
+            if p.suffix.lower() in ALL_MEDIA:
+                all_files.append(p)
+
+    total = len(all_files)
+    if total == 0:
+        print("No media files found in the selected folder.")
+        return
+
+    print(f"Found {total:,} media files. Starting diagnosis...")
+    
+    corrupt_count = 0
+    screenshot_moves = 0
+    duplicate_count = 0
+    
+    size_index = {}
+    
+    try:
+        report_file = open(report_path, 'w', encoding='utf-8')
+        report_file.write(f"ARCHIVE DOCTOR REPORT\n")
+        report_file.write(f"Archive: {arch_path}\n")
+        report_file.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        report_file.write("=" * 60 + "\n\n")
+    except Exception as e:
+        print(f"Error creating report file: {e}")
+        return
+
+    start_time = wall_time()
+
+    for i, p in enumerate(all_files, 1):
+        # 1. Corrupt Check
+        if is_corrupt(p):
+            corrupt_count += 1
+            corrupt_dest = corrupt_dir / p.name
+            corrupt_dir.mkdir(exist_ok=True)
+            
+            counter = 2
+            while corrupt_dest.exists():
+                corrupt_dest = corrupt_dir / f"{p.stem}_{counter}{p.suffix}"
+                counter += 1
+                
+            try:
+                shutil.move(str(p), str(corrupt_dest))
+                report_file.write(f"[CORRUPT] {p.relative_to(arch_path)} -> MOVED TO _Corrupt\n")
+            except Exception as e:
+                report_file.write(f"[CORRUPT] {p} -> ERROR MOVING: {e}\n")
+            continue
+
+        # 2. Internal Duplicate Check
+        try:
+            sz = p.stat().st_size
+            if sz in size_index:
+                p_hash = partial_hash(p)
+                for existing in size_index[sz]:
+                    if partial_hash(existing) == p_hash:
+                        duplicate_count += 1
+                        report_file.write(f"[DUPLICATE] {p.relative_to(arch_path)} is identical to {existing.relative_to(arch_path)}\n")
+                        break
+            else:
+                size_index[sz] = []
+            size_index[sz].append(p)
+        except Exception: pass
+
+        # 3. Retroactive Screenshot Separation
+        is_screenshot = 'screenshot' in p.name.lower()
+        if is_screenshot and p.parent.name in ['Photos', 'Videos']:
+            screenshot_moves += 1
+            new_parent = p.parent.parent / 'Screenshots'
+            new_parent.mkdir(exist_ok=True)
+            new_dest = new_parent / p.name
+            
+            counter = 2
+            while new_dest.exists():
+                new_dest = new_parent / f"{p.stem}_{counter}{p.suffix}"
+                counter += 1
+                
+            try:
+                shutil.move(str(p), str(new_dest))
+                p = new_dest
+                report_file.write(f"[SCREENSHOT] Moved to {new_dest.relative_to(arch_path)}\n")
+            except Exception as e:
+                report_file.write(f"[SCREENSHOT] ERROR MOVING {p.name}: {e}\n")
+
+        if i % 50 == 0 or i == total:
+            elapsed = wall_time() - start_time
+            rate = i / elapsed if elapsed > 0 else 0
+            rem = (total - i) / rate if rate > 0 else 0
+            sys.stdout.write(f"\r  [{i:>6}/{total}] Corrupt: {corrupt_count} | Dupes: {duplicate_count} | Fixed: {screenshot_moves} (ETA: {format_eta(rem)})")
+            sys.stdout.flush()
+
+    sys.stdout.write(f"\r  [{total:>6}/{total}] Corrupt: {corrupt_count} | Dupes: {duplicate_count} | Fixed: {screenshot_moves} (Done!)          \n")
+
+    report_file.write(f"\n\n--- SUMMARY ---\n")
+    report_file.write(f"Total Scanned    : {total}\n")
+    report_file.write(f"Corrupt Found    : {corrupt_count}\n")
+    report_file.write(f"Duplicates Found : {duplicate_count}\n")
+    report_file.write(f"Screenshots Moved: {screenshot_moves}\n")
+    report_file.close()
+
+    print("\n\n" + "=" * 60)
+    print(" ARCHIVE DOCTOR COMPLETE")
+    print(f" Corrupt quarantined : {corrupt_count}")
+    print(f" Screenshots moved   : {screenshot_moves}")
+    print(f" Duplicates flagged  : {duplicate_count}")
+    print(f" Detailed report     : {report_path}")
+    print("=" * 60 + "\n")
 
 
 def run_clean_empty_folders():

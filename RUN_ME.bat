@@ -74,10 +74,11 @@ echo   [4]  SPACE FREER             (delete files already backed up)
 echo   [5]  VIDEO COMPRESSOR        (shrink large videos with FFmpeg)
 echo   [6]  CLEAN EMPTY FOLDERS     (remove empty folders)
 echo   -----------------------------------------------------------
-echo   [7]  EXIT
+echo   [7]  ARCHIVE DOCTOR          (health check retroactively on an archive)
+echo   [8]  EXIT
 echo  ============================================================
 echo.
-set /p choice=" Enter 1-7: "
+set /p choice=" Enter 1-8: "
 
 if "%choice%"=="1" goto dryrun
 if "%choice%"=="2" goto liverun
@@ -85,7 +86,8 @@ if "%choice%"=="3" goto corruptscan
 if "%choice%"=="4" goto spacefree
 if "%choice%"=="5" goto compressvideo
 if "%choice%"=="6" goto cleanempty
-if "%choice%"=="7" exit /b 0
+if "%choice%"=="7" goto archivedoctor
+if "%choice%"=="8" exit /b 0
 
 echo  Invalid choice. Please re-run and enter a valid option.
 pause
@@ -143,6 +145,14 @@ echo.
 echo  CLEAN EMPTY FOLDERS selected - remove empty directories...
 echo.
 python "%~dp0photo_organiser.py" --clean-empty
+goto done
+
+:: -- Archive doctor -----------------------------------------------------------
+:archivedoctor
+echo.
+echo  ARCHIVE DOCTOR selected - checking archive health...
+echo.
+python "%~dp0photo_organiser.py" --archive-doctor
 goto done
 
 :: -- Done ---------------------------------------------------------------------
