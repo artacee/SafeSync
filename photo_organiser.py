@@ -875,12 +875,21 @@ def run_space_freer():
             try:
                 sz = p.stat().st_size
                 if sz in archive_sizes:
-                    src_hash = full_hash(p)
+                    # OPTIMIZATION: Do a lightning-fast partial hash check first
+                    src_partial = partial_hash(p)
+                    possible_matches = []
                     for arch_file in archive_sizes[sz]:
-                        if full_hash(arch_file) == src_hash:
-                            to_delete.append(p)
-                            space_saved += sz
-                            break
+                        if partial_hash(arch_file) == src_partial:
+                            possible_matches.append(arch_file)
+                            
+                    # If partial hashes match, confirm with slow full SHA-256 for safety
+                    if possible_matches:
+                        src_full = full_hash(p)
+                        for arch_file in possible_matches:
+                            if full_hash(arch_file) == src_full:
+                                to_delete.append(p)
+                                space_saved += sz
+                                break
             except Exception: pass
             
             if scanned % 50 == 0:
