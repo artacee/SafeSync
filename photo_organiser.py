@@ -919,6 +919,29 @@ def run_space_freer():
             except Exception as e:
                 print(f"  [ERROR] Failed to trash {p.name}: {e}")
         print(f"\nDone! Successfully moved {success:,} files to the Recycle Bin.")
+        
+        # Auto-trigger Empty Folder cleanup
+        print("\nSweeping source for empty folders left behind...")
+        empty_folders = []
+        for r, dirs, files in os.walk(src_path, topdown=False):
+            if Path(r) == src_path: 
+                continue
+            try:
+                if not os.listdir(r):
+                    empty_folders.append(Path(r))
+            except Exception: pass
+            
+        if empty_folders:
+            print(f"Found {len(empty_folders)} empty folders.")
+            ans_clean = input("Remove these empty folders too? (y/n): ").strip().lower()
+            if ans_clean in ['y', 'yes']:
+                cleaned = 0
+                for d in empty_folders:
+                    try:
+                        d.rmdir()
+                        cleaned += 1
+                    except Exception: pass
+                print(f"Cleaned up {cleaned} empty folders.")
     else:
         print("\nOperation cancelled. No files were deleted.")
 
