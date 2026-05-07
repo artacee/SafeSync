@@ -40,7 +40,7 @@ echo.
 echo  Installing required libraries (Pillow, exifread)...
 echo  (This only downloads once; subsequent runs skip it.)
 echo.
-pip install --quiet --upgrade Pillow exifread pillow-heif
+pip install --quiet --upgrade Pillow exifread pillow-heif send2trash
 if errorlevel 1 (
     color 0C
     echo.
@@ -66,23 +66,28 @@ echo.
 echo  ============================================================
 echo   CHOOSE HOW TO RUN:
 echo.
-echo   [1]  DRY RUN first  (safe preview - nothing is copied)
-echo.
-echo   [2]  LIVE RUN       (copies files to destination)
-echo.
-echo   [3]  SCAN FOR CORRUPT FILES  (checks existing folders for broken files)
-echo.
-echo   [4]  EXIT
+echo   [1]  DRY RUN                 (safe preview - nothing is copied)
+echo   [2]  LIVE RUN                (copies files to destination)
+echo   [3]  SCAN FOR CORRUPT FILES  (check for broken files)
+echo   -----------------------------------------------------------
+echo   [4]  SPACE FREER             (delete files already backed up)
+echo   [5]  VIDEO COMPRESSOR        (shrink large videos with FFmpeg)
+echo   [6]  CLEAN EMPTY FOLDERS     (remove empty folders)
+echo   -----------------------------------------------------------
+echo   [7]  EXIT
 echo  ============================================================
 echo.
-set /p choice=" Enter 1, 2, 3 or 4: "
+set /p choice=" Enter 1-7: "
 
 if "%choice%"=="1" goto dryrun
 if "%choice%"=="2" goto liverun
 if "%choice%"=="3" goto corruptscan
-if "%choice%"=="4" exit /b 0
+if "%choice%"=="4" goto spacefree
+if "%choice%"=="5" goto compressvideo
+if "%choice%"=="6" goto cleanempty
+if "%choice%"=="7" exit /b 0
 
-echo  Invalid choice. Please re-run and enter 1, 2, 3 or 4.
+echo  Invalid choice. Please re-run and enter a valid option.
 pause
 exit /b 1
 
@@ -114,6 +119,30 @@ echo.
 echo  CORRUPT SCAN selected - checking an existing folder for broken files...
 echo.
 python "%~dp0photo_organiser.py" --check-corrupt
+goto done
+
+:: -- Space freer --------------------------------------------------------------
+:spacefree
+echo.
+echo  SPACE FREER selected - scan for duplicate files to delete...
+echo.
+python "%~dp0photo_organiser.py" --space-free
+goto done
+
+:: -- Video compressor ---------------------------------------------------------
+:compressvideo
+echo.
+echo  VIDEO COMPRESSOR selected - shrink large videos with FFmpeg...
+echo.
+python "%~dp0photo_organiser.py" --compress-video
+goto done
+
+:: -- Clean empty folders ------------------------------------------------------
+:cleanempty
+echo.
+echo  CLEAN EMPTY FOLDERS selected - remove empty directories...
+echo.
+python "%~dp0photo_organiser.py" --clean-empty
 goto done
 
 :: -- Done ---------------------------------------------------------------------

@@ -17,11 +17,18 @@ import struct
 import hashlib
 import logging
 import argparse
+import subprocess
 import tkinter as tk
 from tkinter import filedialog
 from pathlib import Path
 from datetime import datetime, timedelta
 from time import time as wall_time
+
+try:
+    import send2trash
+    SEND2TRASH_OK = True
+except ImportError:
+    SEND2TRASH_OK = False
 
 # ── Optional library imports ──────────────────────────────────────────────────
 try:
@@ -383,8 +390,26 @@ def main():
                         help='Preview only — no files are copied')
     parser.add_argument('--check-corrupt', action='store_true',
                         help='Scan an existing folder for corrupt files')
+    parser.add_argument('--space-free', action='store_true',
+                        help='Space Freer: Delete files already backed up')
+    parser.add_argument('--compress-video', action='store_true',
+                        help='Video Compressor: Shrink large videos')
+    parser.add_argument('--clean-empty', action='store_true',
+                        help='Clean empty folders from source')
     args = parser.parse_args()
+    
     dry_run = args.dry_run
+    
+    if args.space_free:
+        run_space_freer()
+        return
+    if args.compress_video:
+        run_video_compressor()
+        return
+    if args.clean_empty:
+        run_clean_empty_folders()
+        return
+
     check_corrupt = args.check_corrupt
 
     # ── Check Corrupt Standalone Mode ─────────────────────────────────────
@@ -801,6 +826,212 @@ def run_corrupt_scan(scan_path: Path):
         print(f" The corrupt files have been moved to: {corrupt_dir}")
     print(f" Full report saved to: {report_path}")
     print("=" * 60 + "\n")
+
+
+def run_space_freer():
+    """Scan a laptop folder and an archive folder, and delete laptop files already backed up."""
+    if not SEND2TRASH_OK:
+        print("\n[ERROR] The 'send2trash' library is missing.")
+        print("Please re-run RUN_ME.bat to automatically install it.")
+        return
+
+    root = tk.Tk()
+    root.withdraw()
+    print("\n============================================================")
+    print(" SPACE FREER: Step 1 - Select Laptop/Source Folder to Clean")
+    print("============================================================\n")
+    source_dir = filedialog.askdirectory(title="Select SOURCE Folder to Clean")
+    if not source_dir: return
+
+    print("\n============================================================")
+    print(" SPACE FREER: Step 2 - Select Archive/Destination Folder")
+    print("============================================================\n")
+    archive_dir = filedialog.askdirectory(title="Select ARCHIVE Folder")
+    if not archive_dir: return
+
+    src_path = Path(source_dir).resolve()
+    arch_path = Path(archive_dir).resolve()
+
+    print(f"\nScanning Archive ({arch_path}) for file sizes...")
+    archive_sizes = {}
+    for r, _, files in os.walk(arch_path):
+        for f in files:
+            p = Path(r) / f
+            try:
+                sz = p.stat().st_size
+                if sz not in archive_sizes:
+                    archive_sizes[sz] = []
+                archive_sizes[sz].append(p)
+            except Exception: pass
+
+    print(f"\nScanning Source ({src_path}) for identical backed-up files...")
+    to_delete = []
+    space_saved = 0
+    scanned = 0
+    for r, _, files in os.walk(src_path):
+        for f in files:
+            p = Path(r) / f
+            scanned += 1
+            try:
+                sz = p.stat().st_size
+                if sz in archive_sizes:
+                    src_hash = full_hash(p)
+                    for arch_file in archive_sizes[sz]:
+                        if full_hash(arch_file) == src_hash:
+                            to_delete.append(p)
+                            space_saved += sz
+                            break
+            except Exception: pass
+            
+            if scanned % 50 == 0:
+                sys.stdout.write(f"\r  Scanned: {scanned:,} | Found Matches: {len(to_delete):,}")
+                sys.stdout.flush()
+
+    sys.stdout.write(f"\r  Scanned: {scanned:,} | Found Matches: {len(to_delete):,}\n")
+    sys.stdout.flush()
+
+    print("\n" + "=" * 60)
+    print(f" Found {len(to_delete):,} files already safely backed up.")
+    print(f" Total space to free: {format_size(space_saved)}")
+    print("=" * 60)
+
+    if not to_delete:
+        print("Nothing to do. Your source drive is clean!")
+        return
+
+    ans = input("\nType 'DELETE' to safely move these files to the Recycle Bin: ")
+    if ans == 'DELETE':
+        print("\nDeleting...")
+        success = 0
+        for i, p in enumerate(to_delete, 1):
+            try:
+                send2trash.send2trash(str(p))
+                success += 1
+            except Exception as e:
+                print(f"  [ERROR] Failed to trash {p.name}: {e}")
+        print(f"\nDone! Successfully moved {success:,} files to the Recycle Bin.")
+    else:
+        print("\nOperation cancelled. No files were deleted.")
+
+
+def run_video_compressor():
+    """Scan a folder for large videos and compress them using FFmpeg H.265."""
+    try:
+        subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    except Exception:
+        print("\n============================================================")
+        print(" [ERROR] FFmpeg is not installed or not on your PATH.")
+        print(" This feature requires FFmpeg to perform the video compression.")
+        print(" Download it from: https://ffmpeg.org/download.html")
+        print("============================================================\n")
+        return
+
+    root = tk.Tk()
+    root.withdraw()
+    print("\n============================================================")
+    print(" VIDEO COMPRESSOR: Select Folder to Scan")
+    print("============================================================\n")
+    scan_dir = filedialog.askdirectory(title="Select Folder with Videos")
+    if not scan_dir: return
+    
+    scan_path = Path(scan_dir).resolve()
+    threshold_mb = 50
+    threshold_bytes = threshold_mb * 1024 * 1024
+    
+    print(f"\nScanning {scan_path} for videos larger than {threshold_mb} MB...")
+    large_videos = []
+    for r, _, files in os.walk(scan_path):
+        for f in files:
+            p = Path(r) / f
+            if is_video(p):
+                try:
+                    if p.stat().st_size > threshold_bytes:
+                        if '_original' not in p.name and '_compressed' not in p.name:
+                            large_videos.append(p)
+                except Exception: pass
+
+    if not large_videos:
+        print("No large videos found matching criteria.")
+        return
+        
+    print("\n" + "=" * 60)
+    print(f" Found {len(large_videos)} large videos.")
+    print("=" * 60)
+    for v in large_videos:
+        print(f" - {v.name} ({format_size(v.stat().st_size)})")
+        
+    ans = input("\nCompress these videos with H.265 to save space? (y/n): ").strip().lower()
+    if ans in ['y', 'yes']:
+        for i, v in enumerate(large_videos, 1):
+            print(f"\n[{i}/{len(large_videos)}] Compressing {v.name}...")
+            out_file = v.with_name(f"{v.stem}_compressed.mp4")
+            try:
+                cmd = [
+                    'ffmpeg', '-y', '-i', str(v), 
+                    '-vcodec', 'libx265', '-crf', '28', '-preset', 'fast', 
+                    '-acodec', 'aac', '-b:a', '128k', 
+                    str(out_file)
+                ]
+                subprocess.run(cmd, check=True)
+                
+                orig_renamed = v.with_name(f"{v.stem}_original{v.suffix}")
+                v.rename(orig_renamed)
+                
+                final_name = v.with_suffix('.mp4')
+                out_file.rename(final_name)
+                print(f"  [SUCCESS] Saved compressed version. Original kept as '{orig_renamed.name}'.")
+            except Exception as e:
+                print(f"  [ERROR] Compression failed for {v.name}: {e}")
+                if out_file.exists():
+                    try: out_file.unlink()
+                    except: pass
+        print("\nAll compressions finished.")
+    else:
+        print("\nCancelled.")
+
+
+def run_clean_empty_folders():
+    """Scan a directory bottom-up and remove all completely empty folders."""
+    root = tk.Tk()
+    root.withdraw()
+    print("\n============================================================")
+    print(" CLEAN EMPTY FOLDERS: Select Source Folder")
+    print("============================================================\n")
+    scan_dir = filedialog.askdirectory(title="Select Folder to Clean")
+    if not scan_dir: return
+    
+    scan_path = Path(scan_dir).resolve()
+    print(f"\nScanning {scan_path} for empty folders...")
+    
+    empty_folders = []
+    for r, dirs, files in os.walk(scan_path, topdown=False):
+        if Path(r) == scan_path: 
+            continue
+        try:
+            if not os.listdir(r):
+                empty_folders.append(Path(r))
+        except Exception: pass
+        
+    if not empty_folders:
+        print("No empty folders found.")
+        return
+        
+    print("\n" + "=" * 60)
+    print(f" Found {len(empty_folders)} completely empty folders.")
+    print("=" * 60)
+    ans = input("Safely remove them all? (y/n): ").strip().lower()
+    if ans in ['y', 'yes']:
+        success = 0
+        for d in empty_folders:
+            try:
+                d.rmdir()
+                print(f"  Deleted: {d.relative_to(scan_path)}")
+                success += 1
+            except Exception as e:
+                print(f"  Failed to delete {d.name}: {e}")
+        print(f"\nDone! Removed {success} empty folders.")
+    else:
+        print("Cancelled.")
 
 
 if __name__ == '__main__':
