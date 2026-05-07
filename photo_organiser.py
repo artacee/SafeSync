@@ -349,22 +349,29 @@ def build_dest(dt, src: Path, dest_root: Path) -> Path:
     Construct the full destination path with Photo/Video subfolders.
     Handles duplicates by appending a counter.
     """
-    stem = src.stem
+    stem = src.stem.lower()
     ext = src.suffix.lower()
+    name = src.name.lower()
+    parent = str(src.parent).lower()
     
-    is_screenshot = 'screenshot' in src.name.lower() or 'screenshot' in str(src.parent).lower()
+    subfolder = None
     
-    if is_screenshot:
-        media_type = "Screenshots"
-    else:
-        media_type = "Videos" if is_video(src) else "Photos"
+    if 'screenshot' in name or 'screenshot' in parent:
+        subfolder = "Screenshots"
+    elif 'wa00' in name or 'whatsapp' in parent or 'telegram' in parent:
+        subfolder = "WhatsApp_and_Chat"
+    elif 'fb_img' in name or 'facebook' in parent or 'insta' in name or 'insta' in parent or 'twitter' in parent or 'snapchat' in parent:
+        subfolder = "Social_Media"
 
     if dt:
         prefix = dt.strftime('%Y-%m-%d_%H%M%S')
-        dest_dir = dest_root / str(dt.year) / MONTHS[dt.month] / media_type
+        dest_dir = dest_root / str(dt.year) / MONTHS[dt.month]
     else:
         prefix = 'UNDATED'
-        dest_dir = dest_root / UNDATED_DIR / media_type
+        dest_dir = dest_root / UNDATED_DIR
+        
+    if subfolder:
+        dest_dir = dest_dir / subfolder
 
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1065,7 +1072,7 @@ def run_archive_doctor():
     print(f"Found {total:,} media files. Starting diagnosis...")
     
     corrupt_count = 0
-    screenshot_moves = 0
+    structural_moves = 0
     duplicate_count = 0
     
     size_index = {}
@@ -1116,48 +1123,76 @@ def run_archive_doctor():
             size_index[sz].append(p)
         except Exception: pass
 
-        # 3. Retroactive Screenshot Separation
-        is_screenshot = 'screenshot' in p.name.lower()
-        if is_screenshot and p.parent.name in ['Photos', 'Videos']:
-            screenshot_moves += 1
-            new_parent = p.parent.parent / 'Screenshots'
-            new_parent.mkdir(exist_ok=True)
-            new_dest = new_parent / p.name
+        # 3. Retroactive Structural & Category Moves
+        name = p.name.lower()
+        parent_name = p.parent.name.lower()
+        
+        target_subfolder = None
+        if 'screenshot' in name or 'screenshot' in parent_name:
+            target_subfolder = "Screenshots"
+        elif 'wa00' in name or 'whatsapp' in parent_name or 'telegram' in parent_name:
+            target_subfolder = "WhatsApp_and_Chat"
+        elif 'fb_img' in name or 'facebook' in parent_name or 'insta' in name or 'insta' in parent_name or 'twitter' in parent_name or 'snapchat' in parent_name:
+            target_subfolder = "Social_Media"
+
+        base_dir = p.parent
+        if p.parent.name in ['Photos', 'Videos', 'Screenshots', 'WhatsApp_and_Chat', 'Social_Media']:
+            base_dir = p.parent.parent
             
+        if target_subfolder:
+            ideal_dest = base_dir / target_subfolder / p.name
+        else:
+            ideal_dest = base_dir / p.name
+            
+        if p.resolve() != ideal_dest.resolve():
+            ideal_dest.parent.mkdir(exist_ok=True)
             counter = 2
-            while new_dest.exists():
-                new_dest = new_parent / f"{p.stem}_{counter}{p.suffix}"
+            while ideal_dest.exists() and ideal_dest.resolve() != p.resolve():
+                ideal_dest = ideal_dest.parent / f"{p.stem}_{counter}{p.suffix}"
                 counter += 1
                 
-            try:
-                shutil.move(str(p), str(new_dest))
-                p = new_dest
-                report_file.write(f"[SCREENSHOT] Moved to {new_dest.relative_to(arch_path)}\n")
-            except Exception as e:
-                report_file.write(f"[SCREENSHOT] ERROR MOVING {p.name}: {e}\n")
+            if ideal_dest.resolve() != p.resolve():
+                try:
+                    shutil.move(str(p), str(ideal_dest))
+                    structural_moves += 1
+                    report_file.write(f"[STRUCTURE] {p.relative_to(arch_path)} -> Moved to {ideal_dest.relative_to(arch_path)}\n")
+                    p = ideal_dest
+                except Exception as e:
+                    report_file.write(f"[STRUCTURE ERROR] {p.name}: {e}\n")
 
         if i % 50 == 0 or i == total:
             elapsed = wall_time() - start_time
             rate = i / elapsed if elapsed > 0 else 0
             rem = (total - i) / rate if rate > 0 else 0
-            sys.stdout.write(f"\r  [{i:>6}/{total}] Corrupt: {corrupt_count} | Dupes: {duplicate_count} | Fixed: {screenshot_moves} (ETA: {format_eta(rem)})")
+            sys.stdout.write(f"\r  [{i:>6}/{total}] Corrupt: {corrupt_count} | Dupes: {duplicate_count} | Restructured: {structural_moves} (ETA: {format_eta(rem)})")
             sys.stdout.flush()
 
-    sys.stdout.write(f"\r  [{total:>6}/{total}] Corrupt: {corrupt_count} | Dupes: {duplicate_count} | Fixed: {screenshot_moves} (Done!)          \n")
+    sys.stdout.write(f"\r  [{total:>6}/{total}] Corrupt: {corrupt_count} | Dupes: {duplicate_count} | Restructured: {structural_moves} (Done!)          \n")
 
     report_file.write(f"\n\n--- SUMMARY ---\n")
-    report_file.write(f"Total Scanned    : {total}\n")
-    report_file.write(f"Corrupt Found    : {corrupt_count}\n")
-    report_file.write(f"Duplicates Found : {duplicate_count}\n")
-    report_file.write(f"Screenshots Moved: {screenshot_moves}\n")
+    report_file.write(f"Total Scanned      : {total}\n")
+    report_file.write(f"Corrupt Found      : {corrupt_count}\n")
+    report_file.write(f"Duplicates Found   : {duplicate_count}\n")
+    report_file.write(f"Files Restructured : {structural_moves}\n")
     report_file.close()
+    
+    print("\nSweeping up empty folders left behind...")
+    cleaned = 0
+    for r, dirs, files in os.walk(arch_path, topdown=False):
+        if Path(r) == arch_path: continue
+        try:
+            if not os.listdir(r):
+                Path(r).rmdir()
+                cleaned += 1
+        except Exception: pass
 
     print("\n\n" + "=" * 60)
     print(" ARCHIVE DOCTOR COMPLETE")
-    print(f" Corrupt quarantined : {corrupt_count}")
-    print(f" Screenshots moved   : {screenshot_moves}")
-    print(f" Duplicates flagged  : {duplicate_count}")
-    print(f" Detailed report     : {report_path}")
+    print(f" Corrupt quarantined   : {corrupt_count}")
+    print(f" Files restructured    : {structural_moves}")
+    print(f" Empty folders cleaned : {cleaned}")
+    print(f" Duplicates flagged    : {duplicate_count}")
+    print(f" Detailed report       : {report_path}")
     print("=" * 60 + "\n")
 
 
