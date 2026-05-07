@@ -351,7 +351,13 @@ def build_dest(dt, src: Path, dest_root: Path) -> Path:
     """
     stem = src.stem
     ext = src.suffix.lower()
-    media_type = "Videos" if is_video(src) else "Photos"
+    
+    is_screenshot = 'screenshot' in src.name.lower() or 'screenshot' in str(src.parent).lower()
+    
+    if is_screenshot:
+        media_type = "Screenshots"
+    else:
+        media_type = "Videos" if is_video(src) else "Photos"
 
     if dt:
         prefix = dt.strftime('%Y-%m-%d_%H%M%S')
