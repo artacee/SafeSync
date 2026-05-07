@@ -66,21 +66,23 @@ echo.
 echo  ============================================================
 echo   CHOOSE HOW TO RUN:
 echo.
-echo   [1]  DRY RUN first  (safe preview - nothing is copied,
-echo                        just logs what WOULD happen)
+echo   [1]  DRY RUN first  (safe preview - nothing is copied)
 echo.
-echo   [2]  LIVE RUN       (copies files; may take 30-90 min)
+echo   [2]  LIVE RUN       (copies files to destination)
 echo.
-echo   [3]  EXIT
+echo   [3]  SCAN FOR CORRUPT FILES  (checks existing folders for broken files)
+echo.
+echo   [4]  EXIT
 echo  ============================================================
 echo.
-set /p choice=" Enter 1, 2 or 3: "
+set /p choice=" Enter 1, 2, 3 or 4: "
 
 if "%choice%"=="1" goto dryrun
 if "%choice%"=="2" goto liverun
-if "%choice%"=="3" exit /b 0
+if "%choice%"=="3" goto corruptscan
+if "%choice%"=="4" exit /b 0
 
-echo  Invalid choice. Please re-run and enter 1, 2 or 3.
+echo  Invalid choice. Please re-run and enter 1, 2, 3 or 4.
 pause
 exit /b 1
 
@@ -104,6 +106,14 @@ echo.
 pause
 
 python "%~dp0photo_organiser.py"
+goto done
+
+:: -- Corrupt scan -------------------------------------------------------------
+:corruptscan
+echo.
+echo  CORRUPT SCAN selected - checking an existing folder for broken files...
+echo.
+python "%~dp0photo_organiser.py" --check-corrupt
 goto done
 
 :: -- Done ---------------------------------------------------------------------

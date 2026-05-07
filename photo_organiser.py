@@ -381,8 +381,27 @@ def main():
     parser = argparse.ArgumentParser(description="Photo/Video Organiser")
     parser.add_argument('--dry-run', action='store_true',
                         help='Preview only — no files are copied')
+    parser.add_argument('--check-corrupt', action='store_true',
+                        help='Scan an existing folder for corrupt files')
     args = parser.parse_args()
     dry_run = args.dry_run
+    check_corrupt = args.check_corrupt
+
+    # ── Check Corrupt Standalone Mode ─────────────────────────────────────
+    if check_corrupt:
+        root = tk.Tk()
+        root.withdraw()
+        print("\n============================================================")
+        print(" Please select the folder you want to scan for corrupt files")
+        print("============================================================\n")
+        scan_folder = filedialog.askdirectory(title="Select Folder to Scan for Corrupt Files")
+        if not scan_folder:
+            print("No folder selected. Exiting.")
+            sys.exit(0)
+            
+        scan_path = Path(scan_folder).resolve()
+        run_corrupt_scan(scan_path)
+        return
 
     # ── Ask for Folders using Tkinter ─────────────────────────────────────
     root = tk.Tk()
@@ -705,6 +724,83 @@ def main():
             f"  {counts['unreliable_date']:,} files were dated using filesystem "
             f"timestamps (unreliable). Check the manifest CSV and review them."
         )
+
+
+def run_corrupt_scan(scan_path: Path):
+    """Standalone mode to just scan a folder for corrupt media."""
+    print(f"\nScanning {scan_path} for media files...")
+    all_files = []
+    for root, _, files in os.walk(scan_path):
+        if '_Corrupt' in root:
+            continue  # Don't scan inside the quarantine folder itself
+        for f in files:
+            p = Path(root) / f
+            if p.suffix.lower() in ALL_MEDIA:
+                all_files.append(p)
+
+    total = len(all_files)
+    if total == 0:
+        print("No media files found in the selected folder.")
+        return
+
+    print(f"Found {total:,} media files. Starting integrity check...")
+    corrupt_dir = scan_path / '_Corrupt'
+    report_path = scan_path / 'corrupt_scan_report.txt'
+    
+    corrupt_count = 0
+    start_time = wall_time()
+
+    try:
+        report_file = open(report_path, 'w', encoding='utf-8')
+        report_file.write(f"CORRUPT SCAN REPORT\n")
+        report_file.write(f"Folder: {scan_path}\n")
+        report_file.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        report_file.write("=" * 60 + "\n\n")
+    except Exception as e:
+        print(f"Error creating report file: {e}")
+        return
+
+    for i, p in enumerate(all_files, 1):
+        if is_corrupt(p):
+            corrupt_count += 1
+            # Move to corrupt dir
+            corrupt_dest = corrupt_dir / p.name
+            corrupt_dir.mkdir(exist_ok=True)
+            
+            # Handle collision in corrupt dir
+            counter = 2
+            stem = p.stem
+            ext = p.suffix
+            while corrupt_dest.exists():
+                corrupt_dest = corrupt_dir / f"{stem}_{counter}{ext}"
+                counter += 1
+                
+            try:
+                shutil.move(str(p), str(corrupt_dest))
+                report_file.write(f"[CORRUPT] {p} -> MOVED TO -> {corrupt_dest}\n")
+            except Exception as e:
+                report_file.write(f"[CORRUPT] {p} -> ERROR MOVING: {e}\n")
+                
+        if i % 100 == 0 or i == total:
+            elapsed = wall_time() - start_time
+            rate = i / elapsed if elapsed > 0 else 0
+            rem = (total - i) / rate if rate > 0 else 0
+            # Print over the same line for a clean progress bar
+            sys.stdout.write(f"\r  [{i:>6}/{total}]  Found: {corrupt_count} corrupt files  (ETA: {format_eta(rem)})")
+            sys.stdout.flush()
+
+    report_file.write(f"\n\nTotal Scanned: {total}\n")
+    report_file.write(f"Total Corrupt: {corrupt_count}\n")
+    report_file.close()
+
+    print("\n\n" + "=" * 60)
+    print(" SCAN COMPLETE")
+    print(f" Total files checked: {total:,}")
+    print(f" Corrupt files found: {corrupt_count:,}")
+    if corrupt_count > 0:
+        print(f" The corrupt files have been moved to: {corrupt_dir}")
+    print(f" Full report saved to: {report_path}")
+    print("=" * 60 + "\n")
 
 
 if __name__ == '__main__':
