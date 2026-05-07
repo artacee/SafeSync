@@ -1,6 +1,6 @@
-# ChronoVault
+# SafeSync
 
-**ChronoVault** is an intelligent, completely safe photo and video organizer script designed to rescue messy media scattered across old hard drives, SD cards, and laptops.
+**SafeSync** is an intelligent, completely safe photo and video organizer script designed to rescue messy media scattered across old hard drives, SD cards, and laptops.
 
 It deeply scans your media, extracts the true original capture dates (even from raw video bytes), and meticulously organizes them into a pristine `Year > Month > Photos/Videos` hierarchy—all without ever modifying your original files.
 
