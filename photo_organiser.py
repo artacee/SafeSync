@@ -363,15 +363,22 @@ def build_dest(dt, src: Path, dest_root: Path) -> Path:
     elif 'fb_img' in name or 'facebook' in parent or 'insta' in name or 'insta' in parent or 'twitter' in parent or 'snapchat' in parent:
         subfolder = "Social_Media"
 
-    if dt:
-        prefix = dt.strftime('%Y-%m-%d_%H%M%S')
-        dest_dir = dest_root / str(dt.year) / MONTHS[dt.month]
+    if subfolder == "Screenshots":
+        dest_dir = dest_root / '_Screenshots'
+        if dt:
+            prefix = dt.strftime('%Y-%m-%d_%H%M%S')
+        else:
+            prefix = 'UNDATED'
     else:
-        prefix = 'UNDATED'
-        dest_dir = dest_root / UNDATED_DIR
-        
-    if subfolder:
-        dest_dir = dest_dir / subfolder
+        if dt:
+            prefix = dt.strftime('%Y-%m-%d_%H%M%S')
+            dest_dir = dest_root / str(dt.year) / MONTHS[dt.month]
+        else:
+            prefix = 'UNDATED'
+            dest_dir = dest_root / UNDATED_DIR
+            
+        if subfolder:
+            dest_dir = dest_dir / subfolder
 
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1148,7 +1155,9 @@ def run_archive_doctor():
         if p.parent.name in ['Photos', 'Videos', 'Screenshots', 'WhatsApp_and_Chat', 'Social_Media']:
             base_dir = p.parent.parent
             
-        if target_subfolder:
+        if target_subfolder == "Screenshots":
+            ideal_dest = arch_path / '_Screenshots' / p.name
+        elif target_subfolder:
             ideal_dest = base_dir / target_subfolder / p.name
         else:
             ideal_dest = base_dir / p.name
